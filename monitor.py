@@ -15,6 +15,11 @@ from bs4 import BeautifulSoup
 JST = timezone(timedelta(hours=9))
 STATE_FILE = Path("state.json")
 
+
+# =========================================================
+# 対象商品
+# =========================================================
+
 TARGETS = {
     "256GB": {
         "jan": "4549995734645",
@@ -45,6 +50,10 @@ STORES = {
 }
 
 
+# =========================================================
+# 買取サーチ
+# =========================================================
+
 PRODUCT_URL = "https://kaitori-search.app/product/{jan}"
 
 
@@ -57,7 +66,10 @@ HEADERS = {
 }
 
 
-# 買取価格として認識する範囲
+# =========================================================
+# 価格として認識する範囲
+# =========================================================
+
 MIN_PRICE = 100_000
 MAX_PRICE = 500_000
 
@@ -101,17 +113,17 @@ def save_state(state):
 
 
 # =========================================================
-# 価格取得
+# 価格解析
 # =========================================================
 
 def price_from_text(text):
 
     """
+    以下の形式から価格を取得。
+
     ¥256,000
     ￥256,000
     256,000円
-
-    などから価格を取得。
     """
 
     patterns = [
@@ -164,7 +176,10 @@ def normalize_store_name(name):
     )
 
 
-def store_name_matches(text, store_name):
+def store_name_matches(
+    text,
+    store_name
+):
 
     text_normalized = normalize_store_name(
         text
@@ -181,7 +196,7 @@ def store_name_matches(text, store_name):
 
 
 # =========================================================
-# 店舗価格抽出
+# 店舗価格取得
 # =========================================================
 
 def extract_store_price(
@@ -191,21 +206,13 @@ def extract_store_price(
 ):
 
     """
-    買取サーチの実際の構造に合わせて取得。
+    買取サーチの商品ページから
+    店舗ごとの買取価格を取得。
 
     商品ページ自体が
-
-        iPhone 18 Pro Max
-        256GB
-        バーガンディ
-        JAN
-
-    を指定しているため、
-
-    比較表の行では
-        店舗名 + 価格
-
-    だけを確認する。
+    256GB / 512GB / 1TB
+    およびカラーを特定しているため、
+    比較表では店舗名と価格を確認する。
     """
 
     # -----------------------------------------------------
@@ -233,25 +240,21 @@ def extract_store_price(
             cell_texts
         )
 
-        # 店舗名が含まれているか
         if not store_name_matches(
             row_text,
             store_name
         ):
             continue
 
-        # 価格取得
         prices = price_from_text(
             row_text
         )
 
         if prices:
-
-            # 最初の価格が買取価格
             return prices[0]
 
     # -----------------------------------------------------
-    # ② ページ内の小さな要素
+    # ② 小さいHTML要素
     # -----------------------------------------------------
 
     for tag in soup.find_all(
@@ -296,7 +299,6 @@ def extract_store_price(
         ):
             continue
 
-        # 店舗名周辺
         start = max(
             0,
             i - 1
@@ -316,7 +318,6 @@ def extract_store_price(
         )
 
         if prices:
-
             return prices[0]
 
     return None
@@ -405,7 +406,7 @@ def money(value):
     if isinstance(value, int):
         return f"{value:,}円"
 
-    return "取得失敗"
+    return "掲載無し"
 
 
 # =========================================================
@@ -513,7 +514,7 @@ def main():
     errors = []
 
     # -----------------------------------------------------
-    # 店舗価格取得
+    # 各店舗の価格取得
     # -----------------------------------------------------
 
     for store, store_name in STORES.items():
@@ -531,13 +532,14 @@ def main():
                 f"{store}: {prices}"
             )
 
+            # 掲載されていない場合
             for capacity, price in prices.items():
 
                 if price is None:
 
                     print(
-                        f"  ⚠ {store} "
-                        f"{capacity}: 取得失敗"
+                        f"  - {store} "
+                        f"{capacity}: 掲載無し"
                     )
 
         except Exception as e:
@@ -589,7 +591,7 @@ def main():
                 old_prices.get(key)
             )
 
-            # 前回より価格が上がった場合
+            # 前回より価格が上昇
             if (
                 isinstance(
                     previous_price,
@@ -630,8 +632,7 @@ def main():
 
         message = [
             "🔔 買取価格UP",
-            "iPhone 18 Pro Max "
-            "バーガンディ",
+            "iPhone 18 Pro Max バーガンディ",
             "",
         ]
 
@@ -660,6 +661,8 @@ def main():
         )
 
     # -----------------------------------------------------
+    # 日次レポート
+    #
     # 13:00 / 15:00 / 18:00
     # -----------------------------------------------------
 
@@ -720,7 +723,7 @@ def main():
 
         print("")
         print(
-            "⚠ 一部店舗で取得失敗"
+            "⚠ 一部店舗で取得エラー"
         )
 
         for error in errors:
