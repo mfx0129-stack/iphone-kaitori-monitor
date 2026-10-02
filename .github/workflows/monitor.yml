@@ -1,6 +1,7 @@
+
 name: 買取価格監視
 
-on:
+'on':
   schedule:
     - cron: '*/10 * * * *'
   workflow_dispatch:
