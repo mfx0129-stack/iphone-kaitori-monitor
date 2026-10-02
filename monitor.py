@@ -22,7 +22,7 @@ STATE_FILE = Path("state.json")
 # False = テスト通知を送らない
 #
 # テストが終わったら False にしてください
-TEST_DISCORD = True
+TEST_DISCORD = False
 
 
 # =========================================================
