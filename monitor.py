@@ -15,7 +15,6 @@ from bs4 import BeautifulSoup
 JST = timezone(timedelta(hours=9))
 STATE_FILE = Path("state.json")
 
-# 対象商品
 TARGETS = {
     "256GB": {
         "jan": "4549995734645",
@@ -31,7 +30,11 @@ TARGETS = {
     },
 }
 
+
+# =========================================================
 # 監視店舗
+# =========================================================
+
 STORES = {
     "買取ソムリエ": "買取ソムリエ",
     "買取ホムラ": "買取ホムラ",
@@ -41,8 +44,9 @@ STORES = {
     "買取一丁目": "買取１丁目",
 }
 
-# 買取サーチ
+
 PRODUCT_URL = "https://kaitori-search.app/product/{jan}"
+
 
 HEADERS = {
     "User-Agent": (
@@ -52,7 +56,8 @@ HEADERS = {
     )
 }
 
-# 価格として認識する範囲
+
+# 買取価格として認識する範囲
 MIN_PRICE = 100_000
 MAX_PRICE = 500_000
 
@@ -62,6 +67,7 @@ MAX_PRICE = 500_000
 # =========================================================
 
 def load_state():
+
     if not STATE_FILE.exists():
         return {
             "prices": {},
@@ -70,8 +76,11 @@ def load_state():
 
     try:
         return json.loads(
-            STATE_FILE.read_text(encoding="utf-8")
+            STATE_FILE.read_text(
+                encoding="utf-8"
+            )
         )
+
     except Exception:
         return {
             "prices": {},
@@ -80,6 +89,7 @@ def load_state():
 
 
 def save_state(state):
+
     STATE_FILE.write_text(
         json.dumps(
             state,
@@ -91,16 +101,17 @@ def save_state(state):
 
 
 # =========================================================
-# 価格解析
+# 価格取得
 # =========================================================
 
 def price_from_text(text):
-    """
-    以下のような価格を取得する。
 
-    ¥259,000
-    ￥259,000
-    259,000円
+    """
+    ¥256,000
+    ￥256,000
+    256,000円
+
+    などから価格を取得。
     """
 
     patterns = [
@@ -111,13 +122,25 @@ def price_from_text(text):
     prices = []
 
     for pattern in patterns:
-        matches = re.findall(pattern, text)
+
+        matches = re.findall(
+            pattern,
+            text
+        )
 
         for value in matches:
-            try:
-                price = int(value.replace(",", ""))
 
-                if MIN_PRICE <= price <= MAX_PRICE:
+            try:
+
+                price = int(
+                    value.replace(",", "")
+                )
+
+                if (
+                    MIN_PRICE
+                    <= price
+                    <= MAX_PRICE
+                ):
                     prices.append(price)
 
             except ValueError:
@@ -126,10 +149,11 @@ def price_from_text(text):
     return prices
 
 
+# =========================================================
+# 店舗名の表記ゆれ対策
+# =========================================================
+
 def normalize_store_name(name):
-    """
-    表記ゆれを吸収。
-    """
 
     return (
         name
@@ -141,129 +165,158 @@ def normalize_store_name(name):
 
 
 def store_name_matches(text, store_name):
-    """
-    店舗名の表記ゆれを考慮。
-    """
 
-    text_normalized = normalize_store_name(text)
-    store_normalized = normalize_store_name(store_name)
+    text_normalized = normalize_store_name(
+        text
+    )
 
-    return store_normalized in text_normalized
+    store_normalized = normalize_store_name(
+        store_name
+    )
+
+    return (
+        store_normalized
+        in text_normalized
+    )
 
 
 # =========================================================
-# 店舗価格取得
+# 店舗価格抽出
 # =========================================================
 
-def extract_store_price(soup, store_name, target):
+def extract_store_price(
+    soup,
+    store_name,
+    target
+):
+
     """
-    買取サーチの比較表から、
+    買取サーチの実際の構造に合わせて取得。
 
-    ・店舗
-    ・容量
-    ・バーガンディ
+    商品ページ自体が
 
-    が一致する行の価格だけを取得する。
+        iPhone 18 Pro Max
+        256GB
+        バーガンディ
+        JAN
 
-    div全体を検索すると、複数店舗の価格を
-    一緒に拾ってしまうため使用しない。
+    を指定しているため、
+
+    比較表の行では
+        店舗名 + 価格
+
+    だけを確認する。
     """
-
-    jan = TARGETS[target]["jan"]
-    model = TARGETS[target]["model"]
 
     # -----------------------------------------------------
-    # ① 比較表の tr を最優先
+    # ① table / tr を最優先
     # -----------------------------------------------------
 
     for row in soup.find_all("tr"):
 
-        cells = row.find_all(["th", "td"])
+        cells = row.find_all(
+            ["th", "td"]
+        )
 
         if not cells:
             continue
 
         cell_texts = [
-            cell.get_text(" ", strip=True)
+            cell.get_text(
+                " ",
+                strip=True
+            )
             for cell in cells
         ]
 
-        row_text = " ".join(cell_texts)
+        row_text = " ".join(
+            cell_texts
+        )
 
-        # 店舗名
-        if not store_name_matches(row_text, store_name):
-            continue
-
-        # 対象容量
-        if target not in row_text:
-            continue
-
-        # バーガンディ
-        if "バーガンディ" not in row_text:
+        # 店舗名が含まれているか
+        if not store_name_matches(
+            row_text,
+            store_name
+        ):
             continue
 
         # 価格取得
-        prices = price_from_text(row_text)
+        prices = price_from_text(
+            row_text
+        )
+
+        if prices:
+
+            # 最初の価格が買取価格
+            return prices[0]
+
+    # -----------------------------------------------------
+    # ② ページ内の小さな要素
+    # -----------------------------------------------------
+
+    for tag in soup.find_all(
+        ["li", "article"]
+    ):
+
+        text = tag.get_text(
+            " ",
+            strip=True
+        )
+
+        if not store_name_matches(
+            text,
+            store_name
+        ):
+            continue
+
+        prices = price_from_text(
+            text
+        )
 
         if prices:
             return prices[0]
 
     # -----------------------------------------------------
-    # ② li / article の小さい要素
-    # -----------------------------------------------------
-
-    for tag in soup.find_all(["li", "article"]):
-
-        text = tag.get_text(" ", strip=True)
-
-        if not store_name_matches(text, store_name):
-            continue
-
-        if target not in text:
-            continue
-
-        if "バーガンディ" not in text:
-            continue
-
-        # JANまたは型番が存在する場合
-        if jan not in text and model not in text:
-            continue
-
-        prices = price_from_text(text)
-
-        if prices:
-            return prices[0]
-
-    # -----------------------------------------------------
-    # ③ 店舗名周辺のテキストを確認
+    # ③ テキスト行によるフォールバック
     # -----------------------------------------------------
 
     lines = [
         line.strip()
-        for line in soup.get_text("\n").splitlines()
+        for line in soup.get_text(
+            "\n"
+        ).splitlines()
         if line.strip()
     ]
 
     for i, line in enumerate(lines):
 
-        if not store_name_matches(line, store_name):
+        if not store_name_matches(
+            line,
+            store_name
+        ):
             continue
 
-        # 店舗名の前後だけを見る
-        start = max(0, i - 2)
-        end = min(len(lines), i + 5)
+        # 店舗名周辺
+        start = max(
+            0,
+            i - 1
+        )
 
-        window = " ".join(lines[start:end])
+        end = min(
+            len(lines),
+            i + 5
+        )
 
-        if target not in window:
-            continue
+        window = " ".join(
+            lines[start:end]
+        )
 
-        if "バーガンディ" not in window:
-            continue
-
-        prices = price_from_text(window)
+        prices = price_from_text(
+            window
+        )
 
         if prices:
+
             return prices[0]
 
     return None
@@ -273,7 +326,10 @@ def extract_store_price(soup, store_name, target):
 # 商品ページ取得
 # =========================================================
 
-def fetch_store(store, store_name):
+def fetch_store(
+    store,
+    store_name
+):
 
     result = {}
 
@@ -319,10 +375,12 @@ def send_discord(content):
     ).strip()
 
     if not webhook:
+
         print(
             "DISCORD_WEBHOOK is not set; "
             "notification skipped"
         )
+
         return False
 
     response = requests.post(
@@ -339,7 +397,7 @@ def send_discord(content):
 
 
 # =========================================================
-# 表示
+# 金額表示
 # =========================================================
 
 def money(value):
@@ -350,18 +408,28 @@ def money(value):
     return "取得失敗"
 
 
-def make_report(data, now):
+# =========================================================
+# 日次レポート
+# =========================================================
+
+def make_report(
+    data,
+    now
+):
 
     out = [
-        "📊 iPhone 18 Pro Max 買取価格（新品未開封）",
-        now.strftime("%Y/%m/%d %H:%M"),
-        ""
+        "📊 iPhone 18 Pro Max 買取価格",
+        "新品未開封・バーガンディ",
+        now.strftime(
+            "%Y/%m/%d %H:%M"
+        ),
+        "",
     ]
 
     for capacity in TARGETS:
 
         out.append(
-            f"【{capacity}・バーガンディ】"
+            f"【{capacity}】"
         )
 
         values = []
@@ -378,26 +446,33 @@ def make_report(data, now):
                 f"{store}：{money(price)}"
             )
 
-            if isinstance(price, int):
+            if isinstance(
+                price,
+                int
+            ):
                 values.append(
                     (price, store)
                 )
 
+        # 最高価格
         if values:
 
             max_price = max(
                 price
-                for price, _ in values
+                for price, store
+                in values
             )
 
             winners = " / ".join(
                 store
-                for price, store in values
+                for price, store
+                in values
                 if price == max_price
             )
 
             out.append(
-                f"🏆 最高：{money(max_price)}"
+                f"🏆 最高："
+                f"{money(max_price)}"
                 f"（{winners}）"
             )
 
@@ -417,12 +492,16 @@ def main():
     print(
         "========================================"
     )
+
     print(
         "iPhone 18 Pro Max 買取価格監視"
     )
+
     print(
-        f"実行時刻：{now:%Y/%m/%d %H:%M:%S}"
+        f"実行時刻："
+        f"{now:%Y/%m/%d %H:%M:%S}"
     )
+
     print(
         "========================================"
     )
@@ -434,7 +513,7 @@ def main():
     errors = []
 
     # -----------------------------------------------------
-    # 各店舗取得
+    # 店舗価格取得
     # -----------------------------------------------------
 
     for store, store_name in STORES.items():
@@ -452,10 +531,10 @@ def main():
                 f"{store}: {prices}"
             )
 
-            # 取得失敗を明示
             for capacity, price in prices.items():
 
                 if price is None:
+
                     print(
                         f"  ⚠ {store} "
                         f"{capacity}: 取得失敗"
@@ -469,7 +548,8 @@ def main():
             }
 
             error_message = (
-                f"{store}: {type(e).__name__}: {e}"
+                f"{store}: "
+                f"{type(e).__name__}: {e}"
             )
 
             errors.append(
@@ -478,44 +558,6 @@ def main():
 
             print(
                 f"❌ {error_message}"
-            )
-
-    # -----------------------------------------------------
-    # 異常チェック
-    # -----------------------------------------------------
-
-    valid_prices = []
-
-    for store in STORES:
-
-        for capacity in TARGETS:
-
-            price = (
-                current
-                .get(store, {})
-                .get(capacity)
-            )
-
-            if isinstance(price, int):
-                valid_prices.append(
-                    price
-                )
-
-    # 全店舗が完全に同じ価格の場合は警告
-    if len(valid_prices) >= 3:
-
-        unique_prices = set(valid_prices)
-
-        if len(unique_prices) <= 3:
-
-            print(
-                "⚠ 価格解析チェック："
-                "複数店舗の価格が同一になっています。"
-            )
-
-            print(
-                "   サイト側の価格が同一の場合もあるため、"
-                "この警告だけではエラーとは判定しません。"
             )
 
     # -----------------------------------------------------
@@ -543,15 +585,22 @@ def main():
                 f"{store}|{capacity}"
             )
 
-            previous_price = old_prices.get(
-                key
+            previous_price = (
+                old_prices.get(key)
             )
 
-            # 前回→今回で上昇した場合のみ通知
+            # 前回より価格が上がった場合
             if (
-                isinstance(previous_price, int)
-                and isinstance(new_price, int)
-                and new_price > previous_price
+                isinstance(
+                    previous_price,
+                    int
+                )
+                and isinstance(
+                    new_price,
+                    int
+                )
+                and new_price
+                > previous_price
             ):
 
                 increases.append(
@@ -564,7 +613,10 @@ def main():
                 )
 
             # 有効な価格だけ保存
-            if isinstance(new_price, int):
+            if isinstance(
+                new_price,
+                int
+            ):
 
                 old_prices[key] = new_price
 
@@ -577,8 +629,10 @@ def main():
     if increases:
 
         message = [
-            "🔔 買取価格UP（新品未開封）",
-            ""
+            "🔔 買取価格UP",
+            "iPhone 18 Pro Max "
+            "バーガンディ",
+            "",
         ]
 
         for (
@@ -589,15 +643,14 @@ def main():
         ) in increases:
 
             message.append(
-                f"📱 iPhone 18 Pro Max "
-                f"バーガンディ {capacity}"
+                f"📱 {capacity}"
             )
 
             message.append(
                 f"{store}："
                 f"{previous:,}円 → "
-                f"{new:,}円 "
-                f"(+{new - previous:,}円)"
+                f"{new:,}円"
+                f"（+{new - previous:,}円）"
             )
 
             message.append("")
@@ -607,19 +660,21 @@ def main():
         )
 
     # -----------------------------------------------------
-    # 日次レポート
-    #
     # 13:00 / 15:00 / 18:00
-    # GitHub Actionsの遅延を考慮して0～2分
     # -----------------------------------------------------
 
     if (
-        now.hour in (13, 15, 18)
+        now.hour in (
+            13,
+            15,
+            18
+        )
         and now.minute <= 2
     ):
 
         slot = (
-            f"{now:%Y-%m-%d}-{now.hour}"
+            f"{now:%Y-%m-%d}"
+            f"-{now.hour}"
         )
 
         last_reports = state.setdefault(
@@ -627,9 +682,13 @@ def main():
             {}
         )
 
+        hour_key = str(
+            now.hour
+        )
+
         if (
             last_reports.get(
-                str(now.hour)
+                hour_key
             )
             != slot
         ):
@@ -639,10 +698,12 @@ def main():
                 now
             )
 
-            send_discord(report)
+            send_discord(
+                report
+            )
 
             last_reports[
-                str(now.hour)
+                hour_key
             ] = slot
 
     # -----------------------------------------------------
@@ -663,6 +724,7 @@ def main():
         )
 
         for error in errors:
+
             print(
                 f"- {error}"
             )
@@ -671,9 +733,11 @@ def main():
     print(
         "========================================"
     )
+
     print(
         "監視処理完了"
     )
+
     print(
         "========================================"
     )
