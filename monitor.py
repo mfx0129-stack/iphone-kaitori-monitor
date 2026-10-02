@@ -15,6 +15,15 @@ from bs4 import BeautifulSoup
 JST = timezone(timedelta(hours=9))
 STATE_FILE = Path("state.json")
 
+# =========================================================
+# Discordテスト通知
+# =========================================================
+# True  = テスト通知を送る
+# False = テスト通知を送らない
+#
+# テストが終わったら False にしてください
+TEST_DISCORD = True
+
 
 # =========================================================
 # 対象商品
@@ -24,14 +33,17 @@ TARGETS = {
     "256GB": {
         "jan": "4549995734645",
         "model": "MJX74J/A",
+        "retail_price": 239800,
     },
     "512GB": {
         "jan": "4549995734843",
         "model": "MJXC4J/A",
+        "retail_price": 274800,
     },
     "1TB": {
         "jan": "4549995735048",
         "model": "MJXG4J/A",
+        "retail_price": 344800,
     },
 }
 
@@ -55,7 +67,6 @@ STORES = {
 # =========================================================
 
 PRODUCT_URL = "https://kaitori-search.app/product/{jan}"
-
 
 HEADERS = {
     "User-Agent": (
@@ -117,14 +128,6 @@ def save_state(state):
 # =========================================================
 
 def price_from_text(text):
-
-    """
-    以下の形式から価格を取得。
-
-    ¥256,000
-    ￥256,000
-    256,000円
-    """
 
     patterns = [
         r"[¥￥]\s*([0-9]{1,3}(?:,[0-9]{3})+)",
@@ -205,20 +208,7 @@ def extract_store_price(
     target
 ):
 
-    """
-    買取サーチの商品ページから
-    店舗ごとの買取価格を取得。
-
-    商品ページ自体が
-    256GB / 512GB / 1TB
-    およびカラーを特定しているため、
-    比較表では店舗名と価格を確認する。
-    """
-
-    # -----------------------------------------------------
-    # ① table / tr を最優先
-    # -----------------------------------------------------
-
+    # ① table / tr
     for row in soup.find_all("tr"):
 
         cells = row.find_all(
@@ -253,10 +243,7 @@ def extract_store_price(
         if prices:
             return prices[0]
 
-    # -----------------------------------------------------
-    # ② 小さいHTML要素
-    # -----------------------------------------------------
-
+    # ② li / article
     for tag in soup.find_all(
         ["li", "article"]
     ):
@@ -279,10 +266,7 @@ def extract_store_price(
         if prices:
             return prices[0]
 
-    # -----------------------------------------------------
-    # ③ テキスト行によるフォールバック
-    # -----------------------------------------------------
-
+    # ③ テキスト行
     lines = [
         line.strip()
         for line in soup.get_text(
@@ -410,6 +394,33 @@ def money(value):
 
 
 # =========================================================
+# 定価との差額
+# =========================================================
+
+def price_difference(
+    price,
+    capacity
+):
+
+    if not isinstance(price, int):
+        return "掲載無し"
+
+    retail_price = TARGETS[
+        capacity
+    ]["retail_price"]
+
+    difference = (
+        price
+        - retail_price
+    )
+
+    if difference >= 0:
+        return f"+{difference:,}円"
+
+    return f"{difference:,}円"
+
+
+# =========================================================
 # 日次レポート
 # =========================================================
 
@@ -429,8 +440,17 @@ def make_report(
 
     for capacity in TARGETS:
 
+        retail_price = TARGETS[
+            capacity
+        ]["retail_price"]
+
         out.append(
             f"【{capacity}】"
+        )
+
+        out.append(
+            f"Apple定価："
+            f"{retail_price:,}円"
         )
 
         values = []
@@ -443,16 +463,27 @@ def make_report(
                 .get(capacity)
             )
 
-            out.append(
-                f"{store}：{money(price)}"
-            )
+            if isinstance(price, int):
 
-            if isinstance(
-                price,
-                int
-            ):
+                diff = price_difference(
+                    price,
+                    capacity
+                )
+
+                out.append(
+                    f"{store}："
+                    f"{price:,}円 "
+                    f"（定価差額 {diff}）"
+                )
+
                 values.append(
                     (price, store)
+                )
+
+            else:
+
+                out.append(
+                    f"{store}：掲載無し"
                 )
 
         # 最高価格
@@ -471,10 +502,19 @@ def make_report(
                 if price == max_price
             )
 
+            max_diff = price_difference(
+                max_price,
+                capacity
+            )
+
             out.append(
                 f"🏆 最高："
-                f"{money(max_price)}"
-                f"（{winners}）"
+                f"{max_price:,}円 "
+                f"（定価差額 {max_diff}）"
+            )
+
+            out.append(
+                f"店舗：{winners}"
             )
 
         out.append("")
@@ -507,15 +547,31 @@ def main():
         "========================================"
     )
 
+    # =====================================================
+    # Discordテスト通知
+    # =====================================================
+
+    if TEST_DISCORD:
+
+        print(
+            "Discordテスト通知を送信します"
+        )
+
+        send_discord(
+            "🔔 Discordテスト通知\n"
+            "iPhone買取価格監視システムは"
+            "正常にDiscordへ接続されています。"
+        )
+
     state = load_state()
 
     current = {}
 
     errors = []
 
-    # -----------------------------------------------------
+    # =====================================================
     # 各店舗の価格取得
-    # -----------------------------------------------------
+    # =====================================================
 
     for store, store_name in STORES.items():
 
@@ -532,7 +588,6 @@ def main():
                 f"{store}: {prices}"
             )
 
-            # 掲載されていない場合
             for capacity, price in prices.items():
 
                 if price is None:
@@ -562,9 +617,9 @@ def main():
                 f"❌ {error_message}"
             )
 
-    # -----------------------------------------------------
+    # =====================================================
     # 価格UP検知
-    # -----------------------------------------------------
+    # =====================================================
 
     increases = []
 
@@ -591,7 +646,6 @@ def main():
                 old_prices.get(key)
             )
 
-            # 前回より価格が上昇
             if (
                 isinstance(
                     previous_price,
@@ -624,9 +678,9 @@ def main():
 
     state["prices"] = old_prices
 
-    # -----------------------------------------------------
+    # =====================================================
     # 価格UP Discord通知
-    # -----------------------------------------------------
+    # =====================================================
 
     if increases:
 
@@ -643,6 +697,11 @@ def main():
             new
         ) in increases:
 
+            diff = price_difference(
+                new,
+                capacity
+            )
+
             message.append(
                 f"📱 {capacity}"
             )
@@ -651,7 +710,16 @@ def main():
                 f"{store}："
                 f"{previous:,}円 → "
                 f"{new:,}円"
-                f"（+{new - previous:,}円）"
+            )
+
+            message.append(
+                f"📈 上昇額："
+                f"+{new - previous:,}円"
+            )
+
+            message.append(
+                f"💰 Apple定価との差額："
+                f"{diff}"
             )
 
             message.append("")
@@ -660,11 +728,9 @@ def main():
             "\n".join(message)
         )
 
-    # -----------------------------------------------------
+    # =====================================================
     # 日次レポート
-    #
-    # 13:00 / 15:00 / 18:00
-    # -----------------------------------------------------
+    # =====================================================
 
     if (
         now.hour in (
@@ -709,15 +775,15 @@ def main():
                 hour_key
             ] = slot
 
-    # -----------------------------------------------------
+    # =====================================================
     # State保存
-    # -----------------------------------------------------
+    # =====================================================
 
     save_state(state)
 
-    # -----------------------------------------------------
+    # =====================================================
     # エラー表示
-    # -----------------------------------------------------
+    # =====================================================
 
     if errors:
 
