@@ -738,7 +738,7 @@ def main():
             15,
             18
         )
-        and now.minute <= 2
+        and now.minute <= 10
     ):
 
         slot = (
