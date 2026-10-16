@@ -679,71 +679,14 @@ def main():
     state["prices"] = old_prices
 
     # =====================================================
-    # 価格UP Discord通知
-    # =====================================================
-
-    if increases:
-
-        message = [
-            "🔔 買取価格UP",
-            "iPhone 18 Pro Max バーガンディ",
-            "",
-        ]
-
-        for (
-            store,
-            capacity,
-            previous,
-            new
-        ) in increases:
-
-            diff = price_difference(
-                new,
-                capacity
-            )
-
-            message.append(
-                f"📱 {capacity}"
-            )
-
-            message.append(
-                f"{store}："
-                f"{previous:,}円 → "
-                f"{new:,}円"
-            )
-
-            message.append(
-                f"📈 上昇額："
-                f"+{new - previous:,}円"
-            )
-
-            message.append(
-                f"💰 Apple定価との差額："
-                f"{diff}"
-            )
-
-            message.append("")
-
-        send_discord(
-            "\n".join(message)
-        )
-
-    # =====================================================
     # 日次レポート
     # =====================================================
 
-    if (
-        now.hour in (
-            13,
-            15,
-            18
-        )
-        and now.minute <= 10
-    ):
+    if now.hour >= 18:
 
         slot = (
             f"{now:%Y-%m-%d}"
-            f"-{now.hour}"
+            f"-18"
         )
 
         last_reports = state.setdefault(
@@ -751,9 +694,7 @@ def main():
             {}
         )
 
-        hour_key = str(
-            now.hour
-        )
+        hour_key = "18"
 
         if (
             last_reports.get(
