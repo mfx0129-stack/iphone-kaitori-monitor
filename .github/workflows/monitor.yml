@@ -3,7 +3,7 @@ name: 買取価格監視
 
 'on':
   schedule:
-    - cron: '0 9 * * *'
+    - cron: '0 4,6,9 * * *'
   workflow_dispatch:
 
 permissions:
