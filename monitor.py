@@ -45,6 +45,36 @@ TARGETS = {
         "model": "MJXG4J/A",
         "retail_price": 344800,
     },
+    "Duo 256GB スターホワイト": {
+        "jan": "4549995732641",
+        "model": "MK244J/A",
+        "retail_price": 364800,
+    },
+    "Duo 256GB ナイトスカイ": {
+        "jan": "4549995732696",
+        "model": "MK254J/A",
+        "retail_price": 364800,
+    },
+    "Duo 512GB スターホワイト": {
+        "jan": "4549995732740",
+        "model": "MK264J/A",
+        "retail_price": 399800,
+    },
+    "Duo 512GB ナイトスカイ": {
+        "jan": "4549995732795",
+        "model": "MK274J/A",
+        "retail_price": 399800,
+    },
+    "Duo 1TB スターホワイト": {
+        "jan": "4549995732849",
+        "model": "MK284J/A",
+        "retail_price": 469800,
+    },
+    "Duo 1TB ナイトスカイ": {
+        "jan": "4549995732894",
+        "model": "MK294J/A",
+        "retail_price": 469800,
+    },
 }
 
 
@@ -430,8 +460,8 @@ def make_report(
 ):
 
     out = [
-        "📊 iPhone 18 Pro Max 買取価格",
-        "新品未開封・バーガンディ",
+        "📊 iPhone 18 Pro Max / iPhone Duo 買取価格",
+        "新品未開封・Pro Max バーガンディ / Duo 全2色",
         now.strftime(
             "%Y/%m/%d %H:%M"
         ),
@@ -445,7 +475,7 @@ def make_report(
         ]["retail_price"]
 
         out.append(
-            f"【{capacity}】"
+            f"【{capacity if capacity.startswith('Duo') else 'Pro Max ' + capacity}】"
         )
 
         out.append(
@@ -535,7 +565,7 @@ def main():
     )
 
     print(
-        "iPhone 18 Pro Max 買取価格監視"
+        "iPhone 18 Pro Max / Duo 買取価格監視"
     )
 
     print(
@@ -682,11 +712,11 @@ def main():
     # 日次レポート
     # =====================================================
 
-    if now.hour >= 18:
+    if now.hour in (13, 15, 18):
 
         slot = (
             f"{now:%Y-%m-%d}"
-            f"-18"
+            f"-{now.hour}"
         )
 
         last_reports = state.setdefault(
@@ -694,7 +724,7 @@ def main():
             {}
         )
 
-        hour_key = "18"
+        hour_key = str(now.hour)
 
         if (
             last_reports.get(
